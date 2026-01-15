@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid
 import json
 import smtplib
 from typing import Any, Iterable
@@ -100,6 +101,8 @@ def send_email(
     message["From"] = sender
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)
+    message["Message-ID"] = make_msgid()
 
     payload = {
         "date": date_str,

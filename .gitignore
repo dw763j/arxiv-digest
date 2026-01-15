@@ -3,3 +3,4 @@ data/
 .env
 *.egg-info/
 __pycache__/
+.env.local

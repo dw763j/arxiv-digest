@@ -187,6 +187,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date", help="Target date in YYYY-MM-DD.")
     parser.add_argument("--once", action="store_true", help="Run once and exit.")
     parser.add_argument(
+        "--env-file",
+        help="Load environment variables from a specific .env file.",
+    )
+    parser.add_argument(
         "--migrate",
         action="store_true",
         help="Migrate legacy data into date-based folders and exit.",
@@ -200,10 +204,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    load_dotenv()
     _setup_logging()
     parser = _build_parser()
     args = parser.parse_args()
+
+    if args.env_file:
+        load_dotenv(args.env_file)
 
     config = AppConfig.from_env()
 
