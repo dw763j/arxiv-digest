@@ -166,13 +166,13 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             password=config.smtp_password,
             sender=config.smtp_from or config.smtp_user,
             recipients=config.smtp_to,
-            subject=f"arXiv 每日摘要 {target_date.isoformat()}",
+            subject=f"arXiv 每日论文摘要 {target_date.isoformat()}",
             summaries=chunk_summaries,
             overall_summary=overall_summary,
             category_counts=category_counts,
             date_str=target_date.isoformat(),
         )
-        logger.info("Email sent to {}", ", ".join(config.smtp_to))
+        logger.info(f"Email sent to {', '.join(config.smtp_to)}")
     else:
         logger.warning("SMTP not configured or recipients missing. Skip email.")
 

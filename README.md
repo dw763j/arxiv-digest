@@ -20,7 +20,7 @@ uv sync
 ## 运行
 - 单次执行（默认抓取昨天）
 ```bash
-uv run arxiv-digest --once
+uv run arxiv-digest --once --log-path /path/to/arxiv-digest.log --env-file /path/to/.env.local
 ```
 
 - 指定日期
@@ -33,12 +33,10 @@ uv run arxiv-digest --once --date 2026-01-15
 uv run arxiv-digest --schedule
 ```
 
-- 迁移历史数据到按日期目录结构
-```bash
-uv run arxiv-digest --migrate
-```
-
 ## 环境变量（.env）
+
+可保存为 .env.local 文件，然后运行时指定 `--env-file /path/to/.env.local`。
+
 ```env
 # arXiv 分类
 ARXIV_CATEGORIES=cs.SE,cs.CV,cs.AI,cs.CR,cs.LG,cs.RO  # 可自定义选择分类
