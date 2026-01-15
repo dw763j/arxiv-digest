@@ -1,0 +1,19 @@
+[project]
+name = "arxiv-digest"
+version = "0.1.0"
+description = "Daily arXiv digest: fetch, summarize, and email."
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27.0",
+  "feedparser>=6.0.11",
+  "openai>=1.40.0",
+  "apscheduler>=3.10.4",
+  "python-dotenv>=1.0.1",
+  "loguru>=0.7.2",
+]
+
+[project.scripts]
+arxiv-digest = "arxiv_digest.main:main"
+
+[tool.uv]
+package = true
