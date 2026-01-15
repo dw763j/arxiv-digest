@@ -122,8 +122,8 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             new_papers,
             chunk_size=chunk_size,
             existing_chunks=existing_chunks,
-            on_response=lambda idx, text: save_response_chunk(
-                config.data_dir, target_date, idx, text
+            on_response=lambda idx, payload: save_response_chunk(
+                config.data_dir, target_date, idx, payload
             ),
         )
 
@@ -150,8 +150,8 @@ def _run_once(config: AppConfig, target_date: date) -> None:
                 config.openai_overall_model,
                 target_date,
                 summaries,
-                on_response=lambda text: save_overall_response(
-                    config.data_dir, target_date, text
+                on_response=lambda payload: save_overall_response(
+                    config.data_dir, target_date, payload
                 ),
             )
             save_overall_summary(config.data_dir, target_date, overall_summary)

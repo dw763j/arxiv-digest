@@ -80,7 +80,7 @@ def summarize_papers_stream(
     *,
     chunk_size: int = 20,
     existing_chunks: dict[int, dict[str, Any]] | None = None,
-    on_response: Callable[[int, str], None] | None = None,
+    on_response: Callable[[int, dict[str, Any]], None] | None = None,
 ) -> list[tuple[int, dict[str, Any]]]:
     if not papers:
         return []
@@ -98,10 +98,12 @@ def summarize_papers_stream(
         logger.info(
             "Summarizing chunk {}/{} ({} papers)", chunk_index, len(chunks), len(chunk)
         )
-        text_output = _call_model_with_fallback(client, model, prompt)
+        text_output, raw_payload = _call_model_with_fallback(client, model, prompt)
         if on_response:
-            on_response(chunk_index, text_output)
+            on_response(chunk_index, raw_payload)
         try:
+            if text_output.startswith("```json") and text_output.endswith("```"):
+                text_output = text_output[len("```json"):-len("```")]
             payload = json.loads(text_output)
         except json.JSONDecodeError:
             logger.warning("Failed to parse direct JSON. Attempting fallback parsing.")
@@ -139,15 +141,15 @@ def summarize_overall(
     target_date: date,
     summaries: list[dict[str, Any]],
     *,
-    on_response: Callable[[str], None] | None = None,
+    on_response: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     if not summaries:
         return {}
     prompt = _build_overall_prompt(target_date, summaries)
     logger.info("Summarizing overall digest with {} chunks", len(summaries))
-    text_output = _call_model_with_fallback(client, model, prompt)
+    text_output, raw_payload = _call_model_with_fallback(client, model, prompt)
     if on_response:
-        on_response(text_output)
+        on_response(raw_payload)
     try:
         return json.loads(text_output)
     except json.JSONDecodeError:
@@ -155,7 +157,9 @@ def summarize_overall(
         return _extract_json(text_output)
 
 
-def _call_model_with_fallback(client: OpenAI, model: str, prompt: str) -> str:
+def _call_model_with_fallback(
+    client: OpenAI, model: str, prompt: str
+) -> tuple[str, dict[str, Any]]:
     use_responses = model.lower().startswith("gpt")
     if use_responses:
         try:
@@ -164,7 +168,7 @@ def _call_model_with_fallback(client: OpenAI, model: str, prompt: str) -> str:
                 input=prompt,
                 temperature=0.2,
             )
-            return response.output_text
+            return response.output_text, _to_payload(response)
         except Exception as exc:  # fallback for models that don't support /responses
             logger.warning(
                 "Responses API failed for model {}, falling back to chat.completions: {}",
@@ -176,4 +180,14 @@ def _call_model_with_fallback(client: OpenAI, model: str, prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )
-    return completion.choices[0].message.content or ""
+    return completion.choices[0].message.content or "", _to_payload(completion)
+
+
+def _to_payload(obj: Any) -> dict[str, Any]:
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "dict"):
+        return obj.dict()
+    if isinstance(obj, dict):
+        return obj
+    return {"raw": str(obj)}

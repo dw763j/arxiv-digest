@@ -134,13 +134,13 @@ def save_response_chunk(
     data_dir: str,
     target_date: date,
     chunk_index: int,
-    response_text: str,
+    response_payload: dict[str, Any],
 ) -> Path:
     responses_dir = _date_dir(data_dir, target_date) / "responses"
     _ensure_dir(responses_dir)
-    filename = f"response_part{chunk_index:02d}.txt"
+    filename = f"response_part{chunk_index:02d}.json"
     path = responses_dir / filename
-    _atomic_write(path, response_text)
+    _atomic_write(path, json.dumps(response_payload, ensure_ascii=False, indent=2))
     return path
 
 
@@ -175,12 +175,12 @@ def load_overall_summary(
 def save_overall_response(
     data_dir: str,
     target_date: date,
-    response_text: str,
+    response_payload: dict[str, Any],
 ) -> Path:
     responses_dir = _date_dir(data_dir, target_date) / "responses"
     _ensure_dir(responses_dir)
-    path = responses_dir / "response_overall.txt"
-    _atomic_write(path, response_text)
+    path = responses_dir / "response_overall.json"
+    _atomic_write(path, json.dumps(response_payload, ensure_ascii=False, indent=2))
     return path
 
 
