@@ -32,16 +32,6 @@ from .storage import (
 from .summarizer import summarize_overall, summarize_papers_stream
 from .scheduler import run_daily
 
-
-def _setup_logging() -> None:
-    logger.remove()
-    logger.add(
-        sink=lambda msg: print(msg, end=""),
-        level="INFO",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-    )
-
-
 def _resolve_target_date(value: date | None) -> date:
     return value or (date.today() - timedelta(days=1))
 
@@ -184,6 +174,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Daily arXiv digest crawler.")
+    parser.add_argument("--log-path", help="Log file path.")
     parser.add_argument("--date", help="Target date in YYYY-MM-DD.")
     parser.add_argument("--once", action="store_true", help="Run once and exit.")
     parser.add_argument(
@@ -204,10 +195,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    _setup_logging()
     parser = _build_parser()
     args = parser.parse_args()
-
+    logger.add(args.log_path or "arxiv-digest.log")
     if args.env_file:
         load_dotenv(args.env_file)
 
