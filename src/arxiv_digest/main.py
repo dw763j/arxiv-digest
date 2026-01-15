@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from datetime import date, datetime, timedelta
 import math
 from typing import Any
@@ -155,6 +156,9 @@ def _run_once(config: AppConfig, target_date: date) -> None:
         and config.smtp_password
         and config.smtp_to
     ):
+        category_counts = dict(
+            sorted(Counter(paper.category for paper in papers).items())
+        )
         send_email(
             host=config.smtp_host,
             port=config.smtp_port,
@@ -165,6 +169,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             subject=f"arXiv 每日摘要 {target_date.isoformat()}",
             summaries=chunk_summaries,
             overall_summary=overall_summary,
+            category_counts=category_counts,
             date_str=target_date.isoformat(),
         )
         logger.info("Email sent to {}", ", ".join(config.smtp_to))

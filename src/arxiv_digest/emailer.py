@@ -52,6 +52,7 @@ def _build_html(
     date_str: str,
     overall_summary: dict[str, Any] | None,
     summaries: Iterable[dict[str, Any]],
+    category_counts: dict[str, int] | None,
 ) -> str:
     sections = [
         "<html><head><style>"
@@ -61,6 +62,8 @@ def _build_html(
         "h3{margin:0 0 10px;font-size:18px;color:#0f172a;}"
         ".card{background:#ffffff;border-radius:12px;padding:16px 18px;margin:12px 0;"
         "box-shadow:0 2px 8px rgba(15,23,42,0.06);}"
+        ".meta{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px;}"
+        ".tag{background:#e2e8f0;border-radius:999px;padding:4px 10px;font-size:12px;color:#0f172a;}"
         ".themes{margin-top:10px;border-top:1px dashed #e5e7eb;padding-top:10px;}"
         ".theme{padding:8px 0;border-bottom:1px solid #f1f5f9;}"
         ".theme:last-child{border-bottom:none;}"
@@ -71,8 +74,15 @@ def _build_html(
         "a:hover{text-decoration:underline;}"
         "ul{padding-left:18px;margin:6px 0;}"
         "</style></head><body><div class=\"container\">",
-        f"<h2>arXiv 每日摘要 - {date_str}</h2>",
+        f"<h2>arXiv 每日论文摘要 - {date_str}</h2>",
     ]
+    if category_counts:
+        total = sum(category_counts.values())
+        sections.append("<div class=\"meta\">")
+        sections.append(f"<span class=\"tag\">总计 {total} 篇</span>")
+        for category, count in category_counts.items():
+            sections.append(f"<span class=\"tag\">{category}: {count}</span>")
+        sections.append("</div>")
     if overall_summary:
         sections.append(_render_summary_html("整体总结", overall_summary))
     for idx, summary in enumerate(summaries, start=1):
@@ -92,6 +102,7 @@ def send_email(
     subject: str,
     summaries: list[dict[str, Any]],
     overall_summary: dict[str, Any] | None = None,
+    category_counts: dict[str, int] | None = None,
     date_str: str,
 ) -> None:
     if not recipients:
@@ -108,9 +119,10 @@ def send_email(
         "date": date_str,
         "overall": overall_summary or {},
         "chunks": summaries,
+        "categories": category_counts or {},
     }
     text_body = json.dumps(payload, ensure_ascii=False, indent=2)
-    html_body = _build_html(date_str, overall_summary, summaries)
+    html_body = _build_html(date_str, overall_summary, summaries, category_counts)
 
     message.set_content(text_body)
     message.add_alternative(html_body, subtype="html")
