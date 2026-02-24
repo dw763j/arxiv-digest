@@ -175,11 +175,14 @@ def _call_model_with_fallback(
                 model,
                 exc,
             )
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2,
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+    except Exception as exc:
+        logger.error("Chat completion failed for model {}: {}", model, exc)
     return completion.choices[0].message.content or "", _to_payload(completion)
 
 
