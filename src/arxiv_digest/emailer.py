@@ -34,7 +34,7 @@ def _render_summary_html(title: str, summary: dict[str, Any]) -> str:
     sections = [f"<div class=\"card\"><h3>{title}</h3>"]
     model = summary.get("_model")
     if model:
-        sections.append(f"<p><strong>模型：</strong><span style=\"color:#666;font-size:12px;\">{model}</span></p>")
+        sections.append(f"<p><span style=\"color:#666;font-size:12px;\">By {model}</span></p>")
     sections.append(f"<p><strong>总结：</strong>{summary.get('summary', '')}</p>")
     keywords = summary.get("keywords", [])
     if keywords:

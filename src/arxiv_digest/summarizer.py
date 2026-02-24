@@ -3,7 +3,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 import json
-import re
 import time
 from typing import Any, Callable
 
