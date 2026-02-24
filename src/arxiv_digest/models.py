@@ -28,3 +28,4 @@ class SummaryChunk:
     date: str
     chunk_index: int
     content: dict[str, Any]
+    model: str | None = None

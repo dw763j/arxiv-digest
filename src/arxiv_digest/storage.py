@@ -91,6 +91,8 @@ def save_summary_chunk(
         "chunk_index": chunk.chunk_index,
         "content": chunk.content,
     }
+    if chunk.model:
+        payload["model"] = chunk.model
     _atomic_write(path, json.dumps(payload, ensure_ascii=False, indent=2))
     return path
 
@@ -126,7 +128,11 @@ def load_summary_chunks(data_dir: str, target_date: date) -> dict[int, dict[str,
         payload = json.loads(path.read_text(encoding="utf-8"))
         chunk_index = int(payload.get("chunk_index", 0))
         if chunk_index > 0:
-            chunks[chunk_index] = payload.get("content", {})
+            content = payload.get("content", {})
+            # 从payload中提取model信息并存入content
+            if "model" in payload:
+                content["_model"] = payload["model"]
+            chunks[chunk_index] = content
     return chunks
 
 
@@ -148,6 +154,7 @@ def save_overall_summary(
     data_dir: str,
     target_date: date,
     summary: dict[str, Any],
+    model: str | None = None,
 ) -> Path:
     summaries_dir = _date_dir(data_dir, target_date) / "summaries"
     _ensure_dir(summaries_dir)
@@ -157,6 +164,8 @@ def save_overall_summary(
         "type": "overall",
         "content": summary,
     }
+    if model:
+        payload["model"] = model
     _atomic_write(path, json.dumps(payload, ensure_ascii=False, indent=2))
     return path
 
@@ -169,7 +178,11 @@ def load_overall_summary(
     if not path.exists():
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
-    return payload.get("content", {})
+    content = payload.get("content", {})
+    # 从payload中提取model信息并存入content
+    if "model" in payload:
+        content["_model"] = payload["model"]
+    return content
 
 
 def save_overall_response(

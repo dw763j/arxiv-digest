@@ -95,10 +95,57 @@ def _chunk(items: list[Paper], size: int) -> list[list[Paper]]:
 
 
 def _extract_json(text: str) -> dict[str, Any]:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    """从文本中提取并解析JSON对象。支持嵌套JSON和转义字符。"""
+    start_idx = text.find('{')
+    if start_idx == -1:
         raise ValueError("No JSON object found in response.")
-    return json.loads(match.group(0))
+    
+    # 从开始索引找到匹配的右括号，处理嵌套和转义
+    brace_count = 0
+    end_idx = -1
+    in_string = False
+    escape_next = False
+    
+    for i in range(start_idx, len(text)):
+        char = text[i]
+        
+        # 处理转义字符
+        if escape_next:
+            escape_next = False
+            continue
+        
+        if char == '\\':
+            escape_next = True
+            continue
+        
+        # 处理字符串边界
+        if char == '"':
+            in_string = not in_string
+            continue
+        
+        # 处理括号计数（仅在字符串外）
+        if not in_string:
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    end_idx = i + 1
+                    break
+    
+    if end_idx == -1:
+        raise ValueError("No matching closing brace found in JSON object.")
+    
+    json_str = text[start_idx:end_idx]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse extracted JSON. Error: {}, JSON: {}",
+            e,
+            json_str[:200],  # 只记录前200字符
+        )
+        raise
 
 
 def _build_prompt(target_date: date, papers: list[Paper]) -> str:
@@ -250,13 +297,51 @@ def _summarize_single_chunk(
     if on_response:
         on_response(chunk_index, raw_payload)
 
+    # 尝试多种JSON解析方法
+    payload = None
+    
+    # 尝试方法1：直接解析为JSON
     try:
         if text_output.startswith("```json") and text_output.endswith("```"):
-            text_output = text_output[len("```json"):-len("```")]
+            text_output = text_output[len("```json"):-len("```")].strip()
         payload = json.loads(text_output)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse direct JSON. Attempting fallback parsing.")
-        payload = _extract_json(text_output)
+        logger.debug("Successfully parsed JSON directly")
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse direct JSON (attempt 1): {}. Trying fallback extraction.",
+            e,
+        )
+        
+        # 尝试方法2：去除markdown代码块标记后再解析
+        try:
+            cleaned = text_output
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[len("```json"):]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[len("```"):]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-len("```")]
+            cleaned = cleaned.strip()
+            payload = json.loads(cleaned)
+            logger.debug("Successfully parsed JSON after removing markdown")
+        except json.JSONDecodeError as e2:
+            logger.warning(
+                "Failed to parse cleaned JSON (attempt 2): {}. Trying extraction.",
+                e2,
+            )
+            
+            # 尝试方法3：从文本中提取JSON
+            try:
+                payload = _extract_json(text_output)
+                logger.debug("Successfully parsed JSON after extraction")
+            except (ValueError, json.JSONDecodeError) as e3:
+                logger.error(
+                    "All JSON parsing methods failed. Output preview: {}",
+                    text_output[:500],
+                )
+                raise SummarizationError(
+                    f"Failed to parse JSON response: {e3}"
+                ) from e3
     
     return payload
 
@@ -304,11 +389,19 @@ def summarize_overall(
         return {"summary": "整体摘要生成失败", "keywords": [], "themes": []}
     if on_response:
         on_response(raw_payload)
+    
+    # 尝试多种JSON解析方法
     try:
+        if text_output.startswith("```json") and text_output.endswith("```"):
+            text_output = text_output[len("```json"):-len("```")].strip()
         return json.loads(text_output)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse overall JSON. Attempting fallback parsing.")
-        return _extract_json(text_output)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse direct JSON: {}. Trying extraction.", e)
+        try:
+            return _extract_json(text_output)
+        except (ValueError, json.JSONDecodeError) as e2:
+            logger.error("Failed to extract JSON: {}", e2)
+            return {"summary": "整体摘要生成失败", "keywords": [], "themes": []}
 
 
 def _call_model_with_fallback(

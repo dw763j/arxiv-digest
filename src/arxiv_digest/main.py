@@ -127,6 +127,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
                         date=target_date.isoformat(),
                         chunk_index=idx,
                         content=summary,
+                        model=config.openai_chunk_model,
                     ),
                 )
             summaries.append(summary)
@@ -146,7 +147,12 @@ def _run_once(config: AppConfig, target_date: date) -> None:
                     config.data_dir, target_date, payload
                 ),
             )
-            save_overall_summary(config.data_dir, target_date, overall_summary)
+            save_overall_summary(
+                config.data_dir,
+                target_date,
+                overall_summary,
+                model=config.openai_overall_model,
+            )
 
     chunk_summaries = summaries
     summaries = chunk_summaries
