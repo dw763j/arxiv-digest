@@ -116,6 +116,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             on_response=lambda idx, payload: save_response_chunk(
                 config.data_dir, target_date, idx, payload
             ),
+            max_workers=config.max_workers,
         )
 
         for idx, summary in summary_pairs:

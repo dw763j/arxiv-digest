@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 import json
 import re
@@ -159,47 +160,106 @@ def summarize_papers_stream(
     chunk_size: int = 20,
     existing_chunks: dict[int, dict[str, Any]] | None = None,
     on_response: Callable[[int, dict[str, Any]], None] | None = None,
+    max_workers: int = 3,
 ) -> list[tuple[int, dict[str, Any]]]:
     if not papers:
         return []
 
-    outputs: list[tuple[int, dict[str, Any]]] = []
     chunks = _chunk(papers, chunk_size)
     existing_chunks = existing_chunks or {}
+
+    # 预先过滤出需要处理的任务和缓存任务
+    pending_tasks: list[tuple[int, list[Paper]]] = []
+    cached_results: list[tuple[int, dict[str, Any]]] = []
 
     for chunk_index, chunk in enumerate(chunks, start=1):
         if chunk_index in existing_chunks:
             logger.info("Using cached summary for chunk {}/{}", chunk_index, len(chunks))
-            outputs.append((chunk_index, existing_chunks[chunk_index]))
-            continue
-        prompt = _build_prompt(target_date, chunk)
-        logger.info(
-            "Summarizing chunk {}/{} ({} papers)", chunk_index, len(chunks), len(chunk)
-        )
-        try:
-            text_output, raw_payload = _call_model_with_fallback(client, model, prompt)
-        except SummarizationError as exc:
-            logger.error(
-                "Chunk {}/{} 摘要生成失败，跳过该分块：{}",
-                chunk_index,
-                len(chunks),
-                exc,
-            )
-            # 返回一个空的摘要结构，避免中断整个流程
-            outputs.append((chunk_index, {"summary": "摘要生成失败", "keywords": [], "themes": []}))
-            continue
-        if on_response:
-            on_response(chunk_index, raw_payload)
-        try:
-            if text_output.startswith("```json") and text_output.endswith("```"):
-                text_output = text_output[len("```json"):-len("```")]
-            payload = json.loads(text_output)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse direct JSON. Attempting fallback parsing.")
-            payload = _extract_json(text_output)
-        outputs.append((chunk_index, payload))
+            cached_results.append((chunk_index, existing_chunks[chunk_index]))
+        else:
+            pending_tasks.append((chunk_index, chunk))
 
-    return outputs
+    # 并行处理待处理的任务
+    outputs: list[tuple[int, dict[str, Any]]] = []
+    
+    if pending_tasks:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务
+            future_to_chunk_index = {
+                executor.submit(
+                    _summarize_single_chunk,
+                    client,
+                    model,
+                    target_date,
+                    chunk_index,
+                    chunk,
+                    len(chunks),
+                    on_response,
+                ): chunk_index
+                for chunk_index, chunk in pending_tasks
+            }
+
+            # 收集完成的任务结果
+            for future in as_completed(future_to_chunk_index):
+                chunk_index = future_to_chunk_index[future]
+                try:
+                    payload = future.result()
+                    outputs.append((chunk_index, payload))
+                except SummarizationError as exc:
+                    logger.error(
+                        "Chunk {}/{} 摘要生成失败：{}",
+                        chunk_index,
+                        len(chunks),
+                        exc,
+                    )
+                    # 返回一个空的摘要结构，避免中断整个流程
+                    outputs.append((chunk_index, {"summary": "摘要生成失败", "keywords": [], "themes": []}))
+
+    # 合并缓存结果和新生成的结果，按chunk_index排序
+    all_outputs = outputs + cached_results
+    all_outputs.sort(key=lambda x: x[0])
+    
+    return all_outputs
+
+
+def _summarize_single_chunk(
+    client: OpenAI,
+    model: str,
+    target_date: date,
+    chunk_index: int,
+    chunk: list[Paper],
+    total_chunks: int,
+    on_response: Callable[[int, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """处理单个分块的摘要生成。"""
+    prompt = _build_prompt(target_date, chunk)
+    logger.info(
+        "Summarizing chunk {}/{} ({} papers)", chunk_index, total_chunks, len(chunk)
+    )
+    try:
+        text_output, raw_payload = _call_model_with_fallback(client, model, prompt)
+    except SummarizationError as exc:
+        logger.error(
+            "Chunk {}/{} 摘要生成失败，跳过该分块：{}",
+            chunk_index,
+            total_chunks,
+            exc,
+        )
+        raise
+
+    if on_response:
+        on_response(chunk_index, raw_payload)
+
+    try:
+        if text_output.startswith("```json") and text_output.endswith("```"):
+            text_output = text_output[len("```json"):-len("```")]
+        payload = json.loads(text_output)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse direct JSON. Attempting fallback parsing.")
+        payload = _extract_json(text_output)
+    
+    return payload
+
 
 
 def _build_overall_prompt(target_date: date, summaries: list[dict[str, Any]]) -> str:

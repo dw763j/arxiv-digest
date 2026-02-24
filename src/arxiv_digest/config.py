@@ -30,6 +30,7 @@ class AppConfig:
     smtp_password: str | None
     smtp_from: str | None
     smtp_to: list[str]
+    max_workers: int
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -52,6 +53,7 @@ class AppConfig:
         smtp_password = os.getenv("SMTP_PASSWORD")
         smtp_from = os.getenv("SMTP_FROM")
         smtp_to = _split_csv(os.getenv("SMTP_TO"), [])
+        max_workers = int(os.getenv("MAX_WORKERS", "4"))
 
         return AppConfig(
             categories=categories,
@@ -69,6 +71,7 @@ class AppConfig:
             smtp_password=smtp_password,
             smtp_from=smtp_from,
             smtp_to=smtp_to,
+            max_workers=max_workers,
         )
 
 
