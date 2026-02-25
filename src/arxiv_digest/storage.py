@@ -34,7 +34,9 @@ def load_state(data_dir: str) -> dict[str, Any]:
 def save_state(data_dir: str, state: dict[str, Any]) -> None:
     state_dir = Path(data_dir) / "state"
     _ensure_dir(state_dir)
-    _atomic_write(state_dir / STATE_FILE, json.dumps(state, ensure_ascii=False, indent=2))
+    _atomic_write(
+        state_dir / STATE_FILE, json.dumps(state, ensure_ascii=False, indent=2)
+    )
 
 
 def build_seen_set(state: dict[str, Any], retention_days: int) -> set[str]:
@@ -131,7 +133,7 @@ def load_summary_chunks(data_dir: str, target_date: date) -> dict[int, dict[str,
             content = payload.get("content", {})
             # 从payload中提取model信息并存入content
             if "model" in payload:
-                content["_model"] = payload["model"]
+                content["model"] = payload["model"]
             chunks[chunk_index] = content
     return chunks
 
@@ -179,9 +181,9 @@ def load_overall_summary(
         return None
     payload = json.loads(path.read_text(encoding="utf-8"))
     content = payload.get("content", {})
-    # 从payload中提取model信息并存入content
+    # # 从payload中提取model信息并存入content
     if "model" in payload:
-        content["_model"] = payload["model"]
+        content["model"] = payload["model"]
     return content
 
 

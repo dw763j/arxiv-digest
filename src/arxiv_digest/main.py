@@ -33,6 +33,7 @@ from .storage import (
 from .summarizer import summarize_overall, summarize_papers_stream
 from .scheduler import run_daily
 
+
 def _resolve_target_date(value: date | None) -> date:
     return value or (date.today() - timedelta(days=1))
 
@@ -137,7 +138,9 @@ def _run_once(config: AppConfig, target_date: date) -> None:
         if not config.openai_api_key:
             logger.warning("OPENAI_API_KEY not configured. Skip overall summary.")
         else:
-            client = OpenAI(api_key=config.openai_api_key, base_url=config.openai_base_url)
+            client = OpenAI(
+                api_key=config.openai_api_key, base_url=config.openai_base_url
+            )
             overall_summary = summarize_overall(
                 client,
                 config.openai_overall_model,
@@ -155,7 +158,6 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             )
 
     chunk_summaries = summaries
-    summaries = chunk_summaries
 
     if (
         config.smtp_host
@@ -210,6 +212,7 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     logger.add(args.log_path or "arxiv-digest.log")
+
     if args.env_file:
         load_dotenv(args.env_file)
 

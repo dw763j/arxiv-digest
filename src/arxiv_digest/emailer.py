@@ -11,18 +11,18 @@ def _render_theme_html(theme: dict[str, Any]) -> str:
     name = theme.get("name", "")
     description = theme.get("description", "")
     papers = theme.get("papers", []) or []
-    parts = [f"<div class=\"theme-title\">{name}</div>"]
+    parts = [f'<div class="theme-title">{name}</div>']
     if description:
-        parts.append(f"<div class=\"theme-desc\">{description}</div>")
+        parts.append(f'<div class="theme-desc">{description}</div>')
     if papers:
-        parts.append("<div class=\"theme-links\">")
-        parts.append("<div class=\"theme-links-title\">相关论文：</div>")
+        parts.append('<div class="theme-links">')
+        parts.append('<div class="theme-links-title">相关论文：</div>')
         parts.append("<ul>")
         for paper in papers:
             title = paper.get("title", "Untitled")
             link = paper.get("link", "")
             if link:
-                parts.append(f"<li><a href=\"{link}\">{title}</a></li>")
+                parts.append(f'<li><a href="{link}">{title}</a></li>')
             else:
                 parts.append(f"<li>{title}</li>")
         parts.append("</ul>")
@@ -31,19 +31,21 @@ def _render_theme_html(theme: dict[str, Any]) -> str:
 
 
 def _render_summary_html(title: str, summary: dict[str, Any]) -> str:
-    sections = [f"<div class=\"card\"><h3>{title}</h3>"]
-    model = summary.get("_model")
+    sections = [f'<div class="card"><h3>{title}</h3>']
+    model = summary.get("model") or summary.get("_model")
     if model:
-        sections.append(f"<p><span style=\"color:#666;font-size:12px;\">By {model}</span></p>")
+        sections[0].append(
+            f'<p style="text-align:right;"><span style="color:#666;font-size:12px;">By {model}</span></p>'
+        )
     sections.append(f"<p><strong>总结：</strong>{summary.get('summary', '')}</p>")
     keywords = summary.get("keywords", [])
     if keywords:
         sections.append(f"<p><strong>关键词：</strong>{', '.join(keywords)}</p>")
     themes = summary.get("themes", [])
     if themes:
-        sections.append("<div class=\"themes\">")
+        sections.append('<div class="themes">')
         for theme in themes:
-            sections.append("<div class=\"theme\">")
+            sections.append('<div class="theme">')
             sections.append(_render_theme_html(theme))
             sections.append("</div>")
         sections.append("</div>")
@@ -76,15 +78,15 @@ def _build_html(
         "a{color:#2563eb;text-decoration:none;}"
         "a:hover{text-decoration:underline;}"
         "ul{padding-left:18px;margin:6px 0;}"
-        "</style></head><body><div class=\"container\">",
+        '</style></head><body><div class="container">',
         f"<h2>arXiv 每日论文摘要 - {date_str}</h2>",
     ]
     if category_counts:
         total = sum(category_counts.values())
-        sections.append("<div class=\"meta\">")
-        sections.append(f"<span class=\"tag\">总计 {total} 篇</span>")
+        sections.append('<div class="meta">')
+        sections.append(f'<span class="tag">总计 {total} 篇</span>')
         for category, count in category_counts.items():
-            sections.append(f"<span class=\"tag\">{category}: {count}</span>")
+            sections.append(f'<span class="tag">{category}: {count}</span>')
         sections.append("</div>")
     if overall_summary:
         sections.append(_render_summary_html("整体总结", overall_summary))
