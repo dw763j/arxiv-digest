@@ -150,6 +150,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
                     config.data_dir, target_date, payload
                 ),
             )
+            overall_summary["model"] = config.openai_overall_model
             save_overall_summary(
                 config.data_dir,
                 target_date,
@@ -220,7 +221,7 @@ def main() -> None:
 
     def task() -> None:
         target_date = _resolve_target_date(parse_target_date(args.date))
-        logger.info("Running digest task for {}", target_date.isoformat())
+        logger.info("\n\nRunning digest task for {}", target_date.isoformat())
         _run_once(config, target_date)
 
     if args.migrate:

@@ -31,12 +31,9 @@ def _render_theme_html(theme: dict[str, Any]) -> str:
 
 
 def _render_summary_html(title: str, summary: dict[str, Any]) -> str:
-    sections = [f'<div class="card"><h3>{title}</h3>']
-    model = summary.get("model") or summary.get("_model")
-    if model:
-        sections[0].append(
-            f'<p style="text-align:right;"><span style="color:#666;font-size:12px;">By {model}</span></p>'
-        )
+    sections = [
+        f'<div class="card"><h3 style="display:flex;justify-content:space-between;align-items:center;">{title}<span style="color:#666;font-size:12px;font-weight:normal;">By {summary.get("model", "")}</span></h3>'
+    ]
     sections.append(f"<p><strong>总结：</strong>{summary.get('summary', '')}</p>")
     keywords = summary.get("keywords", [])
     if keywords:

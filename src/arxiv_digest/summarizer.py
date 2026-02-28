@@ -22,6 +22,7 @@ from .models import Paper
 
 class SummarizationError(Exception):
     """摘要生成过程中的错误。"""
+
     pass
 
 
@@ -35,9 +36,11 @@ def _is_retryable_error(exc: Exception) -> bool:
     return False
 
 
-def _get_retry_delay(attempt: int, base_delay: float = 1.0, max_delay: float = 60.0) -> float:
+def _get_retry_delay(
+    attempt: int, base_delay: float = 1.0, max_delay: float = 60.0
+) -> float:
     """计算指数退避延迟。"""
-    delay = min(base_delay * (2 ** attempt), max_delay)
+    delay = min(base_delay * (2**attempt), max_delay)
     return delay
 
 
@@ -95,46 +98,46 @@ def _chunk(items: list[Paper], size: int) -> list[list[Paper]]:
 
 def _extract_json(text: str) -> dict[str, Any]:
     """从文本中提取并解析JSON对象。支持嵌套JSON和转义字符。"""
-    start_idx = text.find('{')
+    start_idx = text.find("{")
     if start_idx == -1:
         raise ValueError("No JSON object found in response.")
-    
+
     # 从开始索引找到匹配的右括号，处理嵌套和转义
     brace_count = 0
     end_idx = -1
     in_string = False
     escape_next = False
-    
+
     for i in range(start_idx, len(text)):
         char = text[i]
-        
+
         # 处理转义字符
         if escape_next:
             escape_next = False
             continue
-        
-        if char == '\\':
+
+        if char == "\\":
             escape_next = True
             continue
-        
+
         # 处理字符串边界
         if char == '"':
             in_string = not in_string
             continue
-        
+
         # 处理括号计数（仅在字符串外）
         if not in_string:
-            if char == '{':
+            if char == "{":
                 brace_count += 1
-            elif char == '}':
+            elif char == "}":
                 brace_count -= 1
                 if brace_count == 0:
                     end_idx = i + 1
                     break
-    
+
     if end_idx == -1:
         raise ValueError("No matching closing brace found in JSON object.")
-    
+
     json_str = text[start_idx:end_idx]
     try:
         return json.loads(json_str)
@@ -220,14 +223,16 @@ def summarize_papers_stream(
 
     for chunk_index, chunk in enumerate(chunks, start=1):
         if chunk_index in existing_chunks:
-            logger.info("Using cached summary for chunk {}/{}", chunk_index, len(chunks))
+            logger.info(
+                "Using cached summary for chunk {}/{}", chunk_index, len(chunks)
+            )
             cached_results.append((chunk_index, existing_chunks[chunk_index]))
         else:
             pending_tasks.append((chunk_index, chunk))
 
     # 并行处理待处理的任务
     outputs: list[tuple[int, dict[str, Any]]] = []
-    
+
     if pending_tasks:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
@@ -250,6 +255,7 @@ def summarize_papers_stream(
                 chunk_index = future_to_chunk_index[future]
                 try:
                     payload = future.result()
+                    payload["model"] = model  # 将使用的模型信息添加到payload中
                     outputs.append((chunk_index, payload))
                 except SummarizationError as exc:
                     logger.error(
@@ -259,12 +265,17 @@ def summarize_papers_stream(
                         exc,
                     )
                     # 返回一个空的摘要结构，避免中断整个流程
-                    outputs.append((chunk_index, {"summary": "摘要生成失败", "keywords": [], "themes": []}))
+                    outputs.append(
+                        (
+                            chunk_index,
+                            {"summary": "摘要生成失败", "keywords": [], "themes": []},
+                        )
+                    )
 
     # 合并缓存结果和新生成的结果，按chunk_index排序
     all_outputs = outputs + cached_results
     all_outputs.sort(key=lambda x: x[0])
-    
+
     return all_outputs
 
 
@@ -298,11 +309,11 @@ def _summarize_single_chunk(
 
     # 尝试多种JSON解析方法
     payload = None
-    
+
     # 尝试方法1：直接解析为JSON
     try:
         if text_output.startswith("```json") and text_output.endswith("```"):
-            text_output = text_output[len("```json"):-len("```")].strip()
+            text_output = text_output[len("```json") : -len("```")].strip()
         payload = json.loads(text_output)
         logger.debug("Successfully parsed JSON directly")
     except json.JSONDecodeError as e:
@@ -310,16 +321,16 @@ def _summarize_single_chunk(
             "Failed to parse direct JSON (attempt 1): {}. Trying fallback extraction.",
             e,
         )
-        
+
         # 尝试方法2：去除markdown代码块标记后再解析
         try:
             cleaned = text_output
             if cleaned.startswith("```json"):
-                cleaned = cleaned[len("```json"):]
+                cleaned = cleaned[len("```json") :]
             if cleaned.startswith("```"):
-                cleaned = cleaned[len("```"):]
+                cleaned = cleaned[len("```") :]
             if cleaned.endswith("```"):
-                cleaned = cleaned[:-len("```")]
+                cleaned = cleaned[: -len("```")]
             cleaned = cleaned.strip()
             payload = json.loads(cleaned)
             logger.debug("Successfully parsed JSON after removing markdown")
@@ -328,7 +339,7 @@ def _summarize_single_chunk(
                 "Failed to parse cleaned JSON (attempt 2): {}. Trying extraction.",
                 e2,
             )
-            
+
             # 尝试方法3：从文本中提取JSON
             try:
                 payload = _extract_json(text_output)
@@ -338,12 +349,9 @@ def _summarize_single_chunk(
                     "All JSON parsing methods failed. Output preview: {}",
                     text_output[:500],
                 )
-                raise SummarizationError(
-                    f"Failed to parse JSON response: {e3}"
-                ) from e3
-    
-    return payload
+                raise SummarizationError(f"Failed to parse JSON response: {e3}") from e3
 
+    return payload
 
 
 def _build_overall_prompt(target_date: date, summaries: list[dict[str, Any]]) -> str:
@@ -388,11 +396,11 @@ def summarize_overall(
         return {"summary": "整体摘要生成失败", "keywords": [], "themes": []}
     if on_response:
         on_response(raw_payload)
-    
+
     # 尝试多种JSON解析方法
     try:
         if text_output.startswith("```json") and text_output.endswith("```"):
-            text_output = text_output[len("```json"):-len("```")].strip()
+            text_output = text_output[len("```json") : -len("```")].strip()
         return json.loads(text_output)
     except json.JSONDecodeError as e:
         logger.warning("Failed to parse direct JSON: {}. Trying extraction.", e)
