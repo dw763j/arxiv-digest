@@ -8,10 +8,9 @@ from typing import Any
 
 from dotenv import load_dotenv
 from loguru import logger
-from openai import OpenAI
 
 from .arxiv_client import fetch_papers
-from .config import AppConfig, parse_target_date
+from .config import AppConfig, make_openai_client, parse_target_date
 from .emailer import send_email
 from .models import Paper, SummaryChunk
 from .storage import (
@@ -106,7 +105,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
             logger.warning("OPENAI_API_KEY not configured. Skip summarization.")
             return
 
-        client = OpenAI(api_key=config.openai_api_key, base_url=config.openai_base_url)
+        client = make_openai_client(config)
         summary_pairs = summarize_papers_stream(
             client,
             config.openai_chunk_model,
@@ -138,9 +137,7 @@ def _run_once(config: AppConfig, target_date: date) -> None:
         if not config.openai_api_key:
             logger.warning("OPENAI_API_KEY not configured. Skip overall summary.")
         else:
-            client = OpenAI(
-                api_key=config.openai_api_key, base_url=config.openai_base_url
-            )
+            client = make_openai_client(config, timeout=config.openai_overall_timeout)
             overall_summary = summarize_overall(
                 client,
                 config.openai_overall_model,

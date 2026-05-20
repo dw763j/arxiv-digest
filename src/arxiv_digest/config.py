@@ -5,6 +5,8 @@ from datetime import date
 import os
 from typing import Iterable
 
+from openai import OpenAI
+
 
 def _split_csv(value: str | None, default: list[str]) -> list[str]:
     if not value:
@@ -31,6 +33,9 @@ class AppConfig:
     smtp_from: str | None
     smtp_to: list[str]
     max_workers: int
+    openai_timeout: float
+    openai_overall_timeout: float
+    openai_max_retries: int
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -54,6 +59,9 @@ class AppConfig:
         smtp_from = os.getenv("SMTP_FROM")
         smtp_to = _split_csv(os.getenv("SMTP_TO"), [])
         max_workers = int(os.getenv("MAX_WORKERS", "4"))
+        openai_timeout = float(os.getenv("OPENAI_TIMEOUT", "180"))
+        openai_overall_timeout = float(os.getenv("OPENAI_OVERALL_TIMEOUT", "300"))
+        openai_max_retries = int(os.getenv("OPENAI_MAX_RETRIES", "0"))
 
         return AppConfig(
             categories=categories,
@@ -72,7 +80,21 @@ class AppConfig:
             smtp_from=smtp_from,
             smtp_to=smtp_to,
             max_workers=max_workers,
+            openai_timeout=openai_timeout,
+            openai_overall_timeout=openai_overall_timeout,
+            openai_max_retries=openai_max_retries,
         )
+
+
+def make_openai_client(
+    config: AppConfig, *, timeout: float | None = None
+) -> OpenAI:
+    return OpenAI(
+        api_key=config.openai_api_key,
+        base_url=config.openai_base_url,
+        timeout=timeout if timeout is not None else config.openai_timeout,
+        max_retries=config.openai_max_retries,
+    )
 
 
 def parse_target_date(value: str | None) -> date | None:

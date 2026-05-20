@@ -6,6 +6,7 @@ import json
 import time
 from typing import Any, Callable
 
+import httpx
 from loguru import logger
 from openai import OpenAI
 from openai import (
@@ -27,11 +28,17 @@ class SummarizationError(Exception):
 
 
 def _is_retryable_error(exc: Exception) -> bool:
-    """判断错误是否可重试。"""
-    if isinstance(exc, (RateLimitError, APITimeoutError, APIConnectionError)):
+    """判断错误是否可重试。超时类错误不重试，避免长时间挂起。"""
+    if isinstance(exc, APITimeoutError):
+        return False
+    if isinstance(exc, httpx.TimeoutException):
+        return False
+    if isinstance(exc, (RateLimitError, APIConnectionError)):
         return True
     if isinstance(exc, APIStatusError):
-        # 5xx 服务器错误可重试，4xx 客户端错误通常不可重试
+        # 504 多为网关/上游超时，同一 prompt 重试通常无效
+        if exc.status_code == 504:
+            return False
         return exc.status_code >= 500
     return False
 
@@ -60,7 +67,13 @@ def _log_api_error(exc: Exception, model: str, api_type: str) -> None:
         )
     elif isinstance(exc, APITimeoutError):
         logger.error(
-            "[{}] 请求超时 - 网络连接超时或服务器响应过慢。model={}",
+            "[{}] 请求超时 - 已超过客户端 timeout 限制。model={}",
+            api_type,
+            model,
+        )
+    elif isinstance(exc, httpx.TimeoutException):
+        logger.error(
+            "[{}] HTTP 超时 - 已超过客户端 timeout 限制。model={}",
             api_type,
             model,
         )
@@ -150,17 +163,110 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise
 
 
+_CHUNK_JSON_EXAMPLE = json.dumps(
+    {
+        "research_areas": [
+            {
+                "name": "多模态对齐",
+                "description": "3 篇工作用对比学习修正视觉-语言嵌入在细粒度属性上的系统性偏移",
+                "papers": [{"title": "...", "link": "..."}],
+            }
+        ],
+        "problem_insights": [
+            {
+                "title": "评测指标与真实失败模式脱节",
+                "problem_framing": "作者观察到现有 benchmark 高分但部署仍频繁幻觉",
+                "insight": "将问题重构为「失败模式覆盖度」而非平均准确率",
+                "papers": [{"title": "...", "link": "..."}],
+            }
+        ],
+        "keywords": ["对比学习", "幻觉评测"],
+    },
+    ensure_ascii=False,
+)
+
+_OVERALL_JSON_EXAMPLE = json.dumps(
+    {
+        "research_landscape": {
+            "overview": "本日 487 篇中 cs.LG 占 41%，集中在 RL 后训练与推理效率",
+            "areas": [
+                {
+                    "name": "推理效率",
+                    "trend": "多篇用投机解码与 KV 压缩降低长上下文延迟",
+                    "subtopics": ["投机解码", "KV 压缩"],
+                    "papers": [{"title": "...", "link": "..."}],
+                }
+            ],
+        },
+        "problem_discovery": {
+            "overview": "反复出现「基准与部署脱节→重新定义评测对象」的问题发现路径",
+            "patterns": [
+                {
+                    "pattern_name": "从部署失败反推评测缺口",
+                    "how_problems_are_found": "先记录线上/仿真中的具体失败案例，再倒推现有指标盲区",
+                    "typical_insight": "评测应覆盖失败模式分布而非单一平均分",
+                    "examples": [
+                        {
+                            "paper_title": "...",
+                            "link": "...",
+                            "problem_gap": "高分 benchmark 仍频繁幻觉",
+                            "insight": "用失败模式覆盖率替代平均准确率",
+                        }
+                    ],
+                }
+            ],
+            "standout_insights": [
+                {
+                    "insight": "将安全约束建模为可微分的运行时屏障而非事后过滤",
+                    "why_it_matters": "把部署约束前移到训练目标，减少推理阶段补丁堆叠",
+                    "paper": {"title": "...", "link": "..."},
+                }
+            ],
+        },
+        "keywords": ["投机解码", "失败模式评测"],
+    },
+    ensure_ascii=False,
+)
+
+_EMPTY_CHUNK_PAYLOAD: dict[str, Any] = {
+    "research_areas": [],
+    "problem_insights": [],
+    "keywords": [],
+}
+
+_EMPTY_OVERALL_PAYLOAD: dict[str, Any] = {
+    "research_landscape": {"overview": "摘要生成失败", "areas": []},
+    "problem_discovery": {
+        "overview": "摘要生成失败",
+        "patterns": [],
+        "standout_insights": [],
+    },
+    "keywords": [],
+}
+
+
 def _build_prompt(target_date: date, papers: list[Paper]) -> str:
     lines = [
-        "你是一名科研情报分析师，请基于以下 arXiv 论文列表输出结构化摘要。",
-        "要求：",
-        "1) 用中文输出。",
-        "2) 给出主题分类（3-8 个主题），每个主题提供简短说明与代表论文。",
-        "3) 提炼整体关键词（10-20 个）。",
-        "4) 输出一个简要的整体总结（不超过 8 句）。",
-        "5) 返回 JSON 对象，不要添加额外文字。",
+        "你是一名科研情报分析师。本批论文数量较多，请从摘要中提炼**可核对的具体信息**，"
+        "不要写宏观趋势套话。",
+        "",
+        "输出两层信息：",
+        "【层一：研究领域】按子方向归类本批论文（3-5 个），说明该方向**今天在解决什么具体技术/科学问题**",
+        "（用摘要里的术语，禁止「AI 正转向…」「关注安全可控」等无论文锚点的空话）。",
+        "【层二：问题发现与 insight】精选本批最有信息量的 4-6 条，每条说明：",
+        "  - problem_framing：作者如何发现/界定研究问题（矛盾、局限、反常现象、部署失败、评测盲区等，须来自摘要）",
+        "  - insight：核心问题重构或关键洞见（一句话，具体可检验）",
+        "  - 每条至少关联 1 篇论文",
+        "",
+        "硬性要求：",
+        "1) 全部用中文。",
+        "2) 禁止输出 summary/themes 等笼统整体评述；禁止未在摘要出现的推断。",
+        "3) 宁缺毋滥：信息不足的条目不要凑数。",
+        "4) keywords 8-15 个，须来自摘要原文术语。",
+        "5) 只返回 JSON，无额外文字。",
         "",
         f"日期：{target_date.isoformat()}",
+        f"本批论文数：{len(papers)}",
         "",
         "论文列表：",
     ]
@@ -172,11 +278,7 @@ def _build_prompt(target_date: date, papers: list[Paper]) -> str:
             f"   Link: {paper.link}\n"
         )
 
-    lines.append(
-        "JSON 结构示例："
-        '{"summary": "...", "keywords": ["..."], "themes": '
-        '[{"name": "...", "description": "...", "papers": [{"title": "...", "link": "..."}]}]}'
-    )
+    lines.extend(["", "JSON 结构：", _CHUNK_JSON_EXAMPLE])
     return "\n".join(lines)
 
 
@@ -268,7 +370,7 @@ def summarize_papers_stream(
                     outputs.append(
                         (
                             chunk_index,
-                            {"summary": "摘要生成失败", "keywords": [], "themes": []},
+                            _EMPTY_CHUNK_PAYLOAD.copy(),
                         )
                     )
 
@@ -356,22 +458,29 @@ def _summarize_single_chunk(
 
 def _build_overall_prompt(target_date: date, summaries: list[dict[str, Any]]) -> str:
     lines = [
-        "你是一名科研情报分析师，请基于分块摘要进行一次更凝练的整体总结。",
-        "要求：",
-        "1) 用中文输出。",
-        "2) 给出主题分类（3-6 个主题），每个主题提供一句话说明与代表论文。",
-        "3) 提炼整体关键词（8-15 个）。",
-        "4) 输出一个简要的整体总结（不超过 5 句）。",
-        "5) 返回 JSON 对象，不要添加额外文字。",
+        "你是一名科研情报分析师。输入为多篇论文分块摘要（含 research_areas、problem_insights）。",
+        "请**合并、去重、归纳**为当日全局视图，重点回答两个问题：",
+        "1) 今日 arXiv 的研究领域版图：哪些子方向在活跃、各自在攻什么具体问题；",
+        "2) 研究者如何发现好问题：归纳反复出现的问题界定路径（patterns），并选出 5-10 条最值得关注的 insight。",
+        "",
+        "硬性要求：",
+        "1) 全部用中文。",
+        "2) research_landscape.overview 只允许量化/分布类事实（如领域占比、高频子话题），禁止空洞趋势判断。",
+        "3) problem_discovery 必须具体：每条 pattern 写清「如何发现问题」与「典型 insight」，examples 来自输入分块。",
+        "4) standout_insights 选跨领域最有启发、且与摘要证据一致的条目，说明 why_it_matters。",
+        "5) 禁止「当前 AI 研究正从…转向…」类套话；所有判断须能追溯到输入 JSON 中的论文。",
+        "6) areas 6-10 个；patterns 5-8 个；standout_insights 5-10 条。",
+        "7) keywords 10-15 个。",
+        "8) 只返回 JSON，无额外文字。",
         "",
         f"日期：{target_date.isoformat()}",
+        f"分块数：{len(summaries)}",
         "",
         "分块摘要 JSON：",
         json.dumps(summaries, ensure_ascii=False),
         "",
-        "JSON 结构示例："
-        '{"summary": "...", "keywords": ["..."], "themes": '
-        '[{"name": "...", "description": "...", "papers": [{"title": "...", "link": "..."}]}]}',
+        "JSON 结构：",
+        _OVERALL_JSON_EXAMPLE,
     ]
     return "\n".join(lines)
 
@@ -389,11 +498,13 @@ def summarize_overall(
     prompt = _build_overall_prompt(target_date, summaries)
     logger.info("Summarizing overall digest with {} chunks", len(summaries))
     try:
-        text_output, raw_payload = _call_model_with_fallback(client, model, prompt)
+        text_output, raw_payload = _call_model_with_fallback(
+            client, model, prompt, max_retries=1
+        )
     except SummarizationError as exc:
         logger.error("整体摘要生成失败：{}", exc)
         # 返回一个空的总结结构
-        return {"summary": "整体摘要生成失败", "keywords": [], "themes": []}
+        return _EMPTY_OVERALL_PAYLOAD.copy()
     if on_response:
         on_response(raw_payload)
 
@@ -408,7 +519,22 @@ def summarize_overall(
             return _extract_json(text_output)
         except (ValueError, json.JSONDecodeError) as e2:
             logger.error("Failed to extract JSON: {}", e2)
-            return {"summary": "整体摘要生成失败", "keywords": [], "themes": []}
+            return _EMPTY_OVERALL_PAYLOAD.copy()
+
+
+def _extract_chat_content(completion: Any) -> str:
+    if isinstance(completion, str):
+        return completion
+    if hasattr(completion, "choices"):
+        return completion.choices[0].message.content or ""
+    if isinstance(completion, dict):
+        choices = completion.get("choices", [])
+        if choices:
+            message = choices[0].get("message", {})
+            return message.get("content", "") or ""
+    raise SummarizationError(
+        f"无法解析 chat 响应类型：{type(completion).__name__}"
+    )
 
 
 def _call_model_with_fallback(
@@ -488,7 +614,7 @@ def _call_model_with_fallback(
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
             )
-            content = completion.choices[0].message.content
+            content = _extract_chat_content(completion)
             if not content:
                 logger.warning("chat.completions 返回空内容，model={}", model)
                 content = ""
